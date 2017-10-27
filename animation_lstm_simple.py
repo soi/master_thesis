@@ -5,11 +5,9 @@ try:
 except ImportError:
     import Tkinter as tk # python2
 import numpy as np
-import random
 import time
 import matplotlib.pyplot as plt
 from terminaltables import AsciiTable
-from subprocess import call
 
 class Animation(tk.Frame):
     WINDOW_SIZE_Y = 750
@@ -19,8 +17,6 @@ class Animation(tk.Frame):
             'bg_color': '#ffffff',
             'step_delay': 400,
             'step_offset': 40,
-            'plot_only_mse_overall': False,
-            'plot_only_mse': True,
             'input': {
                 'visible': True,
                 'color': 'green'
@@ -74,7 +70,7 @@ class Animation(tk.Frame):
         self.back_button.bind('<ButtonPress-1>', self.go_back)
         self.back_button.pack(side='left')
 
-        self.pause_button = tk.Button(self.button_frame, text='Pause')
+        self.pause_button = tk.Button(self.button_frame, text='Play')
         self.pause_button.pack(side='left')
         self.pause_button.bind('<ButtonPress-1>', self.pause)
 
@@ -133,22 +129,17 @@ class Animation(tk.Frame):
         self.delay_text.pack(side='right')
 
         # create plot axis
-        if self.CONFIG['plot_only_mse']:
-            self.fig, self.ax_mse = plt.subplots(figsize=(9, 4), nrows=1)
-        elif self.CONFIG['plot_only_mse_overall']:
-            self.fig, self.ax_mse_overall = plt.subplots(figsize=(9, 4), nrows=1)
-            self.ax_mse_overall.set_ylabel('MSE', fontsize=13)
-            self.ax_mse_overall.set_xlabel('Index in Predicted Sequence',
-                                           fontsize=13)
-            self.ax_mse_overall.tick_params(axis='both', which='major', labelsize=11)
-            self.ax_mse_overall.set_title('Eights Dataset', fontsize=18)
+        self.fig, axes = plt.subplots(figsize=(11, 10), nrows=2, sharex=True)
+        self.ax_mse = axes[0]
 
-            se = (self.rel_pred_paths - self.rel_label_paths) ** 2
-            self.ax_mse_overall.plot(np.mean(se, axis=(0,2)), linewidth=2.0)
-        else:
-            self.fig, axes = plt.subplots(figsize=(11, 10), nrows=2, sharex=True)
-            self.ax_mse = axes[0]
-            self.ax_mse_overall = axes[1]
+        self.ax_mse_overall = axes[1]
+        self.ax_mse_overall.set_title('Overall MSE', fontsize=12)
+        self.ax_mse_overall.set_ylabel('MSE', fontsize=11)
+        self.ax_mse_overall.set_xlabel('Index in Predicted Sequence',
+                                       fontsize=11)
+        self.ax_mse_overall.tick_params(axis='both', which='major', labelsize=11)
+        se = (self.rel_pred_paths - self.rel_label_paths) ** 2
+        self.ax_mse_overall.plot(np.mean(se, axis=(0,2)), linewidth=2.0)
 
         # start from the train/test boundary
         self.count = 0
@@ -297,16 +288,13 @@ class Animation(tk.Frame):
                                point[1] + self.PIXEL_SIZE)
 
     def update_plot(self):
-        if self.CONFIG['plot_only_mse']:
-            self.ax_mse.clear()
-            self.ax_mse.set_ylabel('MSE', fontsize=12)
-            self.ax_mse.set_xlabel('Index in Predicted Sequence', fontsize=12)
-            self.ax_mse.set_title('Basic LSTM', fontsize=16)
+        self.ax_mse.clear()
+        self.ax_mse.set_ylabel('MSE', fontsize=11)
+        self.ax_mse.set_title('MSE of this prediction', fontsize=12)
 
-            # plot mse over sequences length
-            se = (self.rel_pred_paths[self.count] - self.rel_label_paths[self.count]) ** 2
-            self.ax_mse.plot(np.mean(se, axis=1))
-            print('mse this pred: ' + str(np.mean(se)))
+        # plot mse over sequences length
+        se = (self.rel_pred_paths[self.count] - self.rel_label_paths[self.count]) ** 2
+        self.ax_mse.plot(np.mean(se, axis=1))
         self.fig.tight_layout()
         self.fig.show()
 

@@ -4,32 +4,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas
 import argparse
-import sys
 import tensorflow as tf
-import sklearn
-import time
-import os
-import shutil
-from datetime import datetime
 from terminaltables import AsciiTable
 try:
     import cPickle as pickle # python2
 except ImportError:
     import pickle
 
-from keras.layers import Input, Dense, concatenate
-from keras.layers.core import RepeatVector, Flatten, Reshape, Dropout
-from keras.layers.merge import Concatenate
+from keras.layers import Dense
+from keras.layers.core import Dropout
 from keras.layers.recurrent import LSTM
 from keras.models import Model, load_model, Sequential
-from keras.datasets import mnist
-from keras import regularizers
-from keras import initializers
-from keras import backend as K
 from keras import optimizers
-from keras.callbacks import (EarlyStopping, ModelCheckpoint, TensorBoard,
-                             History, ReduceLROnPlateau, CSVLogger)
-from animation_simple import Animation
+from keras.callbacks import (EarlyStopping, ModelCheckpoint,
+                             History, CSVLogger)
+from animation_lstm_simple import Animation
 
 class Raw():
     pass
@@ -60,12 +49,10 @@ parser.add_argument('-e', '--epochs', type=int, default=200)
 parser.add_argument('-ss', '--step-size', type=int, default=1)
 parser.add_argument('-ipl', '--input-point-len', type=int, default=30)
 parser.add_argument('-u', '--lstm-units', type=int, default=128)
-parser.add_argument('-dr1', '--dropout-input', type=float, default=0.2)
-parser.add_argument('-dr3', '--dropout-output', type=float, default=0.3)
+parser.add_argument('-dri', '--dropout-input', type=float, default=0.2)
 parser.add_argument('-lr', '--learning-rate', type=float, default=0.0002)
 parser.add_argument('-lo', '--loss', type=str, default='mean_absolute_error')
 parser.add_argument('-gc', '--gradient-clip', type=float, default=10.0)
-parser.add_argument('-opt', '--optimizer', type=str, default='rmsprop')
 parser.add_argument('-bs', '--batch-size', type=int, default=64)
 parser.add_argument('-pl', '--test-pred-len', type=int, default=40)
 
@@ -73,12 +60,10 @@ parser.add_argument('-tsp', '--test-split', type=float, default=0.1)
 parser.add_argument('-vsp', '--val-split', type=float, default=0.1)
 parser.add_argument('-tpl', '--train-pred-len', type=int, default=5)
 parser.add_argument('-v', '--verbose', type=int, default=1)
-parser.add_argument('-hc', '--hyperopti-count', type=int, default=100)
 
 parser.add_argument('-no-center', '--no-center', action='store_true')
 parser.add_argument('-na', '--no-animation', action='store_true')
 parser.add_argument('-scatter', '--scatter', action='store_true')
-parser.add_argument('-hyperopti', '--hyperopti', action='store_true')
 args = parser.parse_args()
 
 assert args.data != '', 'need data'
@@ -118,7 +103,6 @@ def print_model_params():
     params.append(['test pred len', args.test_pred_len])
     params.append(['dropout input', args.dropout_input])
     params.append(['learning rate', args.learning_rate])
-    params.append(['optimizer', args.optimizer])
 
     table = AsciiTable(params)
     table.inner_heading_row_border = False
@@ -242,195 +226,93 @@ def get_x_y():
         print_dataset_sizes(train_split, data)
     return data
 
+##############
+# Script start
+##############
 
-def hyperopti():
-    def write_files(path, parameters, model, history, lowest_loss_idx,
-                    delta, num_run):
-        # save model
-        model.save(path + 'final_model.h5')
-        shutil.copyfile(args.save_model_path, path + 'best_model.h5')
+data = get_x_y()
+dataset = data.rel
 
-        # config file
-        f = open(path + 'config', 'w')
-        f.write('data' + '\t' + args.data + '\n')
-        f.write('test split' + '\t' + str(args.test_split) + '\n')
-        f.write('input point len' + '\t' + str(args.input_point_len) + '\n')
-        f.write('loss' + '\t' + str(history['loss'][lowest_loss_idx]) + '\n')
-        f.write('val_loss' + '\t' + str(history['val_loss'][lowest_loss_idx]) + '\n')
-        for key in parameters.keys():
-            f.write(key + '\t' + str(getattr(args, key)) + '\n')
-        f.write('epochs' + '\t' + str(args.epochs) + '\n')
-        f.write('time' + '\t' + str(int(delta)) + 's\n')
-        f.close()
+##########
+# Model
+##########
 
-        # losses text file
-        f = open(path + 'losses', 'w')
-        f.write('loss\tval_loss\n')
-        for idx in range(len(history['loss'])):
-            f.write(str(history['loss'][idx]) + '\t')
-            f.write(str(history['val_loss'][idx]) + '\n')
-        f.close()
+if not args.load_model_path:
+    callbacks = [History(),
+                 ModelCheckpoint(args.save_model_path, monitor='val_loss',
+                                 save_best_only=True, verbose=0),
+                 EarlyStopping(monitor='val_loss', patience=6),
+                 CSVLogger('history.log')]
 
-        # write graphs
-        lines = [e[:4] + '= ' + str(getattr(args, e))[:5] for e in parameters.keys()]
-        text_str = '\n'.join(lines)
+    input_point_len = args.input_point_len - 1
 
-        plt.cla()
-        plt.title('run ' + str(num_run))
-        plt.text(0.8, 0.65, text_str, transform=plt.gca().transAxes)
-        plt.axhline(y=-50.0, color='black', linestyle='--', linewidth=1)
-        plt.plot(history['loss'], label='loss')
-        plt.plot(history['val_loss'], label='val_loss')
-        plt.legend(loc='upper left')
-        plt.savefig(path + 'plot' + str(num_run) + '.png')
+    model = Sequential()
+    model.add(Dropout(args.dropout_input, input_shape=(input_point_len, 2)))
+    model.add(LSTM(args.lstm_units))
+    model.add(Dense(2 * args.train_pred_len))
 
+    optimizer = optimizers.RMSprop(lr=args.learning_rate,
+                                   clipvalue=args.gradient_clip)
+    model.compile(optimizer=optimizer, loss=args.loss)
 
-    parameters = {
-            # 'lstm_units': lambda: 2**int(np.random.uniform(1, 9)),
-            # 'input_point_len': lambda: 2**int(np.random.uniform(2, 6)),
-            'dropout': lambda: np.random.randint(2, 7) * 0.1,
-    }
-    args.verbose = 0
-    keys = list(parameters.keys()) + ['loss', 'val_loss', 'epochs', 'time']
-    print('\t'.join(keys))
+    if args.verbose is not 0:
+        print_data_shape(dataset)
+        print_model_params()
+        print(model.summary())
+        print()
 
-    # needed for the results dir name
-    format = '%Y-%m-%d_%H:%M:%S'
-    current_time = datetime.fromtimestamp(time.time()).strftime(format)
-    for i in range(args.hyperopti_count):
-        for key, func in parameters.items():
-            setattr(args, key, func())
+    history = model.fit(dataset.train.x, dataset.train.y,
+              epochs=args.epochs,
+              batch_size=args.batch_size,
+              shuffle=True,
+              validation_data=(dataset.val.x, dataset.val.y),
+              callbacks=callbacks,
+              verbose=args.verbose)
 
-        values = [getattr(args, key) for key in parameters.keys()]
-        values_str = '\t'.join([str(val) for val in values])
-        print(values_str, end='')
-        sys.stdout.flush()
+#############
+# Prediction
+#############
 
-        start = time.time()
-        history, model = run()
-        history = history.history
-        delta = time.time() - start
-        lowest_loss_idx = np.argmin(history['val_loss'])
-        loss = "{0:.6f}".format(history['loss'][lowest_loss_idx])
-        val_loss = "{0:.6f}".format(history['val_loss'][lowest_loss_idx])
-
-        # print results
-        results = [loss, val_loss]
-        results.append(len(history['loss']))
-        results.append(str(int(delta)) + 's')
-        results_str = '\t' + '\t'.join([str(res) for res in results])
-        print (results_str)
-        sys.stdout.flush()
-
-        # directory for the hyperopt results
-        main_dirname = __file__.split('/')[-1] + '-' + current_time
-        path = './hyperopt/' + main_dirname + '/'
-        path += '_'.join(['run', str(i), loss, val_loss]) + '/'
-        os.makedirs(path)
-        write_files(path, parameters, model, history, lowest_loss_idx, delta, i)
-
-def run():
-    data = get_x_y()
-    dataset = data.rel
-
-    ##########
-    # Model
-    #########
-
-    if not args.load_model_path:
-        if args.hyperopti:
-            # clear the backend to start from scratch
-            K.clear_session()
-
-        callbacks = [History(),
-                     ModelCheckpoint(args.save_model_path, monitor='val_loss',
-                                     save_best_only=True, verbose=0),
-                     EarlyStopping(monitor='val_loss', patience=6),
-                     CSVLogger('history.log')]
-
-        input_point_len = args.input_point_len - 1
-
-        model = Sequential()
-        model.add(Dropout(args.dropout_input, input_shape=(input_point_len, 2)))
-        model.add(LSTM(args.lstm_units))
-        model.add(Dense(2 * args.train_pred_len))
-
-        if args.optimizer == 'adam':
-            optimizer = optimizers.Adam(clipvalue=args.gradient_clip)
-        elif args.optimizer == 'rmsprop':
-            optimizer = optimizers.RMSprop(lr=args.learning_rate,
-                                           clipvalue=args.gradient_clip)
-        elif args.optimizer == 'nadam':
-            optimizer = optimizers.Naam(clipvalue=args.gradient_clip)
-        model.compile(optimizer=optimizer, loss=args.loss)
-
-        if args.verbose is not 0:
-            print_data_shape(dataset)
-            print_model_params()
-            print(model.summary())
-            print()
-
-        history = model.fit(dataset.train.x, dataset.train.y,
-                  epochs=args.epochs,
-                  batch_size=args.batch_size,
-                  shuffle=True,
-                  validation_data=(dataset.val.x, dataset.val.y),
-                  callbacks=callbacks,
-                  verbose=args.verbose)
-
-    #############
-    # Prediction
-    #############
-
-    if not args.hyperopti:
-        print('\nprediction start')
-        if args.load_model_path:
-            model = load_model(args.load_model_path)
-        else:
-            model = load_model(args.save_model_path)
-
-        # prediction setup
-        test_size = len(dataset.test.x)
-        pred_len = args.train_pred_len
-        preds = np.zeros((test_size, args.test_pred_len, 2))
-        x = np.copy(dataset.test.x)
-        # predict all trajectories at once
-        for i in range(0, args.test_pred_len, pred_len):
-            pred_points = model.predict_on_batch(x) # (test_size, pred_len * 2)
-            pred_points = pred_points.reshape((test_size, pred_len, 2))
-            preds[:, i:i + pred_len] = pred_points
-            # appending prediction to next input
-            x[:, :-pred_len] = x[:, pred_len:]
-            x[:, -pred_len:] = pred_points
-            print(str(i) + '/' + str(args.test_pred_len))
-
-        print('prediction finished\n')
-
-        ####################
-        # Prediction error calculation
-        ####################
-
-        # compute elementwise squared error of the relative data
-        se = (preds - data.rel.test.y) ** 2
-        print('data: ' + args.data.split('/')[-2])
-        print('mse avg: ' + "{0:.4f}".format(np.average(se)))
-
-        #############
-        # Animation
-        #############
-
-        if not args.no_animation:
-            Animation(data.abs.test.x,
-                      data.abs.test.y,
-                      data.rel.test.y,
-                      data.mean_rel,
-                      data.std_rel,
-                      preds)
-
-    else:
-        return history, model
-
-if args.hyperopti:
-    hyperopti()
+print('\nprediction start')
+if args.load_model_path:
+    model = load_model(args.load_model_path)
 else:
-    run()
+    model = load_model(args.save_model_path)
+
+# prediction setup
+test_size = len(dataset.test.x)
+pred_len = args.train_pred_len
+preds = np.zeros((test_size, args.test_pred_len, 2))
+x = np.copy(dataset.test.x)
+# predict all trajectories at once
+for i in range(0, args.test_pred_len, pred_len):
+    pred_points = model.predict_on_batch(x) # (test_size, pred_len * 2)
+    pred_points = pred_points.reshape((test_size, pred_len, 2))
+    preds[:, i:i + pred_len] = pred_points
+    # appending prediction to next input
+    x[:, :-pred_len] = x[:, pred_len:]
+    x[:, -pred_len:] = pred_points
+    print(str(i) + '/' + str(args.test_pred_len))
+
+print('prediction finished\n')
+
+####################
+# Prediction error calculation
+####################
+
+# compute elementwise squared error of the relative data
+se = (preds - data.rel.test.y) ** 2
+print('data: ' + args.data.split('/')[-2])
+print('mse avg: ' + "{0:.4f}".format(np.average(se)))
+
+#############
+# Animation
+#############
+
+if not args.no_animation:
+    Animation(data.abs.test.x,
+              data.abs.test.y,
+              data.rel.test.y,
+              data.mean_rel,
+              data.std_rel,
+              preds)

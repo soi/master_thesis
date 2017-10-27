@@ -5,14 +5,12 @@ try:
 except ImportError:
     import Tkinter as tk # python2
 import numpy as np
-import random
 import time
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import multivariate_normal
 from terminaltables import AsciiTable
-from subprocess import call
 
 class Animation(tk.Frame):
     WINDOW_SIZE_Y = 750
@@ -22,10 +20,7 @@ class Animation(tk.Frame):
             'bg_color': '#ffffff',
             'step_delay': 400,
             'step_offset': 40,
-            'plot_contour': False,
-            'plot_only_mse_overall': False,
-            'plot_only_mse': False,
-            'plot_only_pi': True,
+            'plot_contour': True,
             'input': {
                 'visible': True,
                 'color': 'green'
@@ -81,7 +76,7 @@ class Animation(tk.Frame):
         self.back_button.bind('<ButtonPress-1>', self.go_back)
         self.back_button.pack(side='left')
 
-        self.pause_button = tk.Button(self.button_frame, text='Pause')
+        self.pause_button = tk.Button(self.button_frame, text='Play')
         self.pause_button.pack(side='left')
         self.pause_button.bind('<ButtonPress-1>', self.pause)
 
@@ -139,7 +134,7 @@ class Animation(tk.Frame):
                 fg='black')
         self.delay_text.pack(side='right')
 
-        # create plot axes
+        # create contour plot axes
         if self.CONFIG['plot_contour']:
             self.contour_fig, self.ax_co = plt.subplots(1, figsize=(5, 5 * 1.7777))
             self.ax_co.invert_yaxis()
@@ -150,28 +145,18 @@ class Animation(tk.Frame):
             divider = make_axes_locatable(self.ax_co)
             self.ax_co_cb = divider.append_axes("right", size="5%", pad=0.1)
 
-        if self.CONFIG['plot_only_pi']:
-            self.graphs_fig, self.ax_pi = plt.subplots(figsize=(9, 4), nrows=1)
-        elif self.CONFIG['plot_only_mse']:
-            self.graphs_fig, self.ax_mse = plt.subplots(figsize=(9, 4), nrows=1)
-        elif self.CONFIG['plot_only_mse_overall']:
-            self.graphs_fig, self.ax_mse_overall = plt.subplots(figsize=(9, 4), nrows=1)
-            self.ax_mse_overall.set_ylabel('MSE', fontsize=13)
-            self.ax_mse_overall.set_xlabel('Index in Predicted Sequence',
-                                           fontsize=13)
-            self.ax_mse_overall.tick_params(axis='both', which='major', labelsize=11)
+        # other plots
+        self.graphs_fig, axes = plt.subplots(figsize=(11, 10), nrows=3, sharex=True)
+        self.ax_pi = axes[0]
+        self.ax_mse = axes[1]
+        self.ax_mse_overall = axes[2]
+        self.ax_mse_overall.set_title('Overall MSE', fontsize=12)
+        self.ax_mse_overall.set_ylabel('MSE', fontsize=11)
+        self.ax_mse_overall.set_xlabel('Index in Predicted Sequence', fontsize=11)
 
-            se = (self.rel_pred_paths - self.rel_label_paths) ** 2
-            self.ax_mse_overall.plot(np.mean(se, axis=(0,2)), linewidth=2.0)
-        else:
-            self.graphs_fig, axes = plt.subplots(figsize=(11, 10), nrows=3, sharex=True)
-            self.ax_pi = axes[0]
-            self.ax_mse = axes[1]
-            self.ax_mse_overall = axes[2]
-
-            # plot mse overall as it never changes
-            se = (self.rel_pred_paths - self.rel_label_paths) ** 2
-            self.ax_mse_overall.plot(np.mean(se, axis=(0,2)))
+        # plot mse overall as it never changes
+        se = (self.rel_pred_paths - self.rel_label_paths) ** 2
+        self.ax_mse_overall.plot(np.mean(se, axis=(0,2)))
 
         # start from the train/test boundary
         self.count = 0
@@ -298,7 +283,6 @@ class Animation(tk.Frame):
             print(t.table)
 
     def show_pred(self, event):
-        """
         labels = self.rel_label_paths[self.count]
         print('label')
         for i, l in enumerate(labels):
@@ -308,14 +292,12 @@ class Animation(tk.Frame):
                 print(l, end='')
             print(' ' + str(i))
         print('')
-        """
 
         start_point = self.input_paths[self.count][-1]
         print('start_point: ' + str(start_point))
 
         self.print_mdn()
 
-        """
         pred = self.rel_pred_paths[self.count]
         print('prediction')
         for i, p in enumerate(pred):
@@ -325,7 +307,6 @@ class Animation(tk.Frame):
                 print(p, end='')
             print(' ' + str(i))
         print('')
-        """
 
     def go_to_start(self, event):
         print('start')
@@ -370,12 +351,12 @@ class Animation(tk.Frame):
                                 format="eps",
                                 dpi=1000)
         print("saved plot image")
-        # if self.CONFIG['plot_contour']:
-            # self.contour_fig.savefig("saved_contour" + str(unix_time) + ".png",
-            #                          bbox_inches='tight',
-            #                          format="png",
-            #                          dpi=700)
-            # print("saved contour image")
+        if self.CONFIG['plot_contour']:
+            self.contour_fig.savefig("saved_contour" + str(unix_time) + ".png",
+                                      bbox_inches='tight',
+                                      format="png",
+                                      dpi=700)
+            print("saved contour image")
 
     def get_coord(self, data_point):
         max_size_x = self.WINDOW_SIZE_X / self.PIXEL_SIZE
@@ -396,6 +377,8 @@ class Animation(tk.Frame):
 
     def update_contour_plot(self):
         self.ax_co.clear()
+        self.ax_co.set_title('Values of the cumulative GMMs', fontsize=12)
+
         pi, mu1, mu2, sig1, sig2, corr = self.preprocess_current_mdn()
         resolution = 100 # equal for each dim
 
@@ -453,35 +436,30 @@ class Animation(tk.Frame):
         self.contour_fig.show()
 
     def update_graphs_plots(self):
-        if self.CONFIG['plot_only_pi']:
-            self.ax_pi.clear()
-            self.ax_pi.set_ylabel(r'$\pi$', fontsize=14)
-            self.ax_pi.set_xlabel('Index in Predicted Sequence', fontsize=12)
-            self.ax_pi.set_title('Horizontal Lines Dataset', fontsize=16)
-            # self.ax_pi.set_xticklabels([])
+        self.ax_pi.clear()
+        self.ax_pi.set_title(r'$\Pi$ values of the GMM for this prediction', fontsize=12)
+        self.ax_pi.set_ylabel(r'$\pi$', fontsize=14)
 
-            pi, mu1, mu2, sig1, sig2, corr = self.preprocess_current_mdn()
-            # preparing component choices
-            choices = self.component_choice[self.count].astype(np.int16)
-            # one hot encode component choice for masking
-            choice_mask = np.ones(pi.shape)
-            choice_mask[np.arange(len(choices)), choices] = 0
-            pi_masked = np.ma.masked_array(pi, mask=choice_mask)
+        pi, mu1, mu2, sig1, sig2, corr = self.preprocess_current_mdn()
+        # preparing component choices
+        choices = self.component_choice[self.count].astype(np.int16)
+        # one hot encode component choice for masking
+        choice_mask = np.ones(pi.shape)
+        choice_mask[np.arange(len(choices)), choices] = 0
+        pi_masked = np.ma.masked_array(pi, mask=choice_mask)
 
-            # plot pi values
-            for i, dist in enumerate(pi.T):
-                self.ax_pi.plot(dist, color='C' + str(i))
-                self.ax_pi.plot(pi_masked.T[i], color='C' + str(i), marker='o')
+        # plot pi values
+        for i, dist in enumerate(pi.T):
+            self.ax_pi.plot(dist, color='C' + str(i))
+            self.ax_pi.plot(pi_masked.T[i], color='C' + str(i), marker='o')
 
-        if self.CONFIG['plot_only_mse']:
-            # plot mse over sequences length
-            self.ax_mse.clear()
-            self.ax_mse.set_ylabel('MSE', fontsize=12)
-            self.ax_mse.set_xlabel('Index in Predicted Sequence', fontsize=12)
-            self.ax_mse.set_title('LSTM-MDN', fontsize=16)
-            se = (self.rel_pred_paths[self.count] - self.rel_label_paths[self.count]) ** 2
-            self.ax_mse.plot(np.mean(se, axis=1))
-            print('mse this pred: ' + str(np.mean(se)))
+        # plot mse over sequences length
+        self.ax_mse.clear()
+        self.ax_mse.set_title('MSE of this prediction', fontsize=12)
+        self.ax_mse.set_ylabel('MSE', fontsize=11)
+        se = (self.rel_pred_paths[self.count] - self.rel_label_paths[self.count]) ** 2
+        self.ax_mse.plot(np.mean(se, axis=1))
+        print('mse this pred: ' + str(np.mean(se)))
 
         self.graphs_fig.tight_layout()
         self.graphs_fig.show()

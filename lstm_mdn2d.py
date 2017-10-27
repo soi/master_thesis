@@ -4,13 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas
 import argparse
-import sys
 import tensorflow as tf
-import sklearn
-import time
-import os
-import shutil
-from datetime import datetime
 from terminaltables import AsciiTable
 from mdn2d import *
 try:
@@ -18,18 +12,14 @@ try:
 except ImportError:
     import pickle
 
-from keras.layers import Input, Dense, concatenate
-from keras.layers.core import RepeatVector, Flatten, Reshape, Dropout
-from keras.layers.merge import Concatenate
+from keras.layers import Input, Dense
+from keras.layers.core import Dropout
 from keras.layers.recurrent import LSTM
 from keras.models import Model, load_model
-from keras.datasets import mnist
-from keras import regularizers
 from keras import initializers
-from keras import backend as K
 from keras import optimizers
-from keras.callbacks import (EarlyStopping, ModelCheckpoint, TensorBoard,
-                             History, ReduceLROnPlateau, CSVLogger)
+from keras.callbacks import (EarlyStopping, ModelCheckpoint,
+                             History, CSVLogger)
 from animation_lstm_mdn import Animation
 
 class Raw():
@@ -64,12 +54,10 @@ parser.add_argument('-std', '--init_stddev', type=float, default=0.1)
 parser.add_argument('-ss', '--step-size', type=int, default=1)
 parser.add_argument('-ipl', '--input-point-len', type=int, default=30)
 parser.add_argument('-u', '--lstm-units', type=int, default=128)
-parser.add_argument('-dr1', '--dropout-input', type=float, default=0.2)
-parser.add_argument('-dr2', '--dropout-multi-lstm', type=float, default=0.1)
-parser.add_argument('-dr3', '--dropout-output', type=float, default=0.3)
+parser.add_argument('-dri', '--dropout-input', type=float, default=0.2)
+parser.add_argument('-dro', '--dropout-output', type=float, default=0.3)
 parser.add_argument('-lr', '--learning_rate', type=float, default=0.0002)
 parser.add_argument('-gc', '--gradient-clip', type=float, default=10.0)
-parser.add_argument('-opt', '--optimizer', type=str, default='rmsprop')
 parser.add_argument('-bs', '--batch-size', type=int, default=64)
 parser.add_argument('-pl', '--test-pred-len', type=int, default=40)
 
@@ -77,14 +65,11 @@ parser.add_argument('-tsp', '--test-split', type=float, default=0.1)
 parser.add_argument('-vsp', '--val-split', type=float, default=0.1)
 parser.add_argument('-tpl', '--train-pred-len', type=int, default=1)
 parser.add_argument('-v', '--verbose', type=int, default=1)
-parser.add_argument('-hc', '--hyperopti_count', type=int, default=100)
-parser.add_argument('-multi', '--multi-lstm', action='store_true')
 
 parser.add_argument('-no-center', '--no-center', action='store_true')
 parser.add_argument('-ms', '--max-sampling', action='store_true')
 parser.add_argument('-na', '--no-animation', action='store_true')
 parser.add_argument('-scatter', '--scatter', action='store_true')
-parser.add_argument('-hyperopti', '--hyperopti', action='store_true')
 args = parser.parse_args()
 
 assert args.data != '', 'need data'
@@ -124,12 +109,8 @@ def print_model_params():
     params.append(['num components', args.num_components])
     params.append(['init_stddev', args.init_stddev])
     params.append(['dropout input', args.dropout_input])
-    if args.multi_lstm:
-        params.append(['dropout multi lstm', args.dropout_multi_lstm])
     params.append(['dropout output', args.dropout_output])
     params.append(['learning rate', args.learning_rate])
-    params.append(['optimizer', args.optimizer])
-    params.append(['multi lstm', args.multi_lstm])
 
     table = AsciiTable(params)
     table.inner_heading_row_border = False
@@ -253,99 +234,6 @@ def get_x_y():
         print_dataset_sizes(train_split, data)
     return data
 
-
-def hyperopti():
-    def write_files(path, parameters, model, history, lowest_loss_idx, mse,
-                    delta, num_run):
-        # save model
-        model.save(path + 'final_model.h5')
-        shutil.copyfile(args.save_model_path, path + 'best_model.h5')
-
-        # config file
-        f = open(path + 'config', 'w')
-        f.write('data' + '\t' + args.data + '\n')
-        f.write('test split' + '\t' + str(args.test_split) + '\n')
-        f.write('input point len' + '\t' + str(args.input_point_len) + '\n')
-        f.write('num components' + '\t' + str(args.num_components) + '\n')
-        f.write('loss' + '\t' + str(history['loss'][lowest_loss_idx]) + '\n')
-        f.write('val_loss' + '\t' + str(history['val_loss'][lowest_loss_idx]) + '\n')
-        f.write('mse' + '\t' + mse + '\n')
-        for key in parameters.keys():
-            f.write(key + '\t' + str(getattr(args, key)) + '\n')
-        f.write('epochs' + '\t' + str(args.epochs) + '\n')
-        f.write('time' + '\t' + str(int(delta)) + 's\n')
-        f.close()
-
-        # losses text file
-        f = open(path + 'losses', 'w')
-        f.write('loss\tval_loss\n')
-        for idx in range(len(history['loss'])):
-            f.write(str(history['loss'][idx]) + '\t')
-            f.write(str(history['val_loss'][idx]) + '\n')
-        f.close()
-
-        # write graphs
-        lines = [e[:4] + '= ' + str(getattr(args, e))[:5] for e in parameters.keys()]
-        text_str = '\n'.join(lines)
-
-        plt.cla()
-        plt.title('run ' + str(num_run))
-        plt.text(0.8, 0.65, text_str, transform=plt.gca().transAxes)
-        plt.axhline(y=-50.0, color='black', linestyle='--', linewidth=1)
-        plt.plot(history['loss'], label='loss')
-        plt.plot(history['val_loss'], label='val_loss')
-        plt.legend(loc='upper left')
-        plt.savefig(path + 'plot' + str(num_run) + '.png')
-
-
-    """
-    parameters = {
-            'lstm_units': lambda: 2**int(np.random.uniform(1, 10)),
-            'input_point_len': lambda: 5 * int(np.random.uniform(1, 11)),
-            # 'dropout_input': lambda: np.random.randint(0, 6) * 0.1,
-    }
-    """
-    args.verbose = 0
-    keys = ['ipl', 'lstm_u', 'loss', 'val_loss', 'mse', 'epochs', 'time']
-    print('\t'.join(keys))
-
-    # needed for the results dir name
-    format = '%Y-%m-%d_%H:%M:%S'
-    current_time = datetime.fromtimestamp(time.time()).strftime(format)
-    for ipl in range(5, 55, 5):
-        for lstm_u in [2 ** e for e in range(1, 10)]:
-            setattr(args, 'input_point_len', ipl)
-            setattr(args, 'lstm_units', lstm_u)
-
-            values = [ipl, lstm_u]
-            values_str = '\t'.join([str(val) for val in values])
-            print(values_str, end='')
-            sys.stdout.flush()
-
-            start = time.time()
-            history, mse, model = run()
-            history = history.history
-            delta = time.time() - start
-            lowest_loss_idx = np.argmin(history['val_loss'])
-            loss = "{0:.6f}".format(history['loss'][lowest_loss_idx])
-            val_loss = "{0:.6f}".format(history['val_loss'][lowest_loss_idx])
-            mse = "{0:.4f}".format(mse)
-
-            # print results
-            results = [loss, val_loss, mse]
-            results.append(len(history['loss']))
-            results.append(str(int(delta)) + 's')
-            results_str = '\t' + '\t'.join([str(res) for res in results])
-            print (results_str)
-            sys.stdout.flush()
-
-            # directory for the hyperopt results
-            # main_dirname = __file__.split('/')[-1] + '-' + current_time
-            # path = './hyperopt/' + main_dirname + '/'
-            # path += '_'.join(['run', str(i), loss, val_loss]) + '/'
-            # os.makedirs(path)
-            # write_files(path, parameters, model, history, lowest_loss_idx, mse, delta, i)
-
 def sample(params):
     """ Sample from the output of model.predict_on_batch(x)"""
     def sample_gaussian_2d(mu1, mu2, sig1, sig2, corr):
@@ -382,127 +270,113 @@ def sample(params):
         result_nc[i] = nc
     return result_sample, result_nc
 
-def run():
-    data = get_x_y()
-    dataset = data.rel
+##############
+# Script start
+##############
 
-    ##########
-    # Model
-    #########
+data = get_x_y()
+dataset = data.rel
 
-    output_dim = args.train_pred_len * args.num_components * 6
-    if not args.load_model_path:
-        if args.hyperopti:
-            # clear the backend to start from scratch
-            K.clear_session()
+##########
+# Model
+##########
 
-        callbacks = [History(),
-                     ModelCheckpoint(args.save_model_path, monitor='val_loss',
-                                     save_best_only=True, verbose=0),
-                     EarlyStopping(monitor='val_loss', patience=args.patience),
-                     CSVLogger('history.log')]
-        init = initializers.RandomNormal(stddev=args.init_stddev)
+output_dim = args.train_pred_len * args.num_components * 6
+if not args.load_model_path:
+    callbacks = [History(),
+                 ModelCheckpoint(args.save_model_path, monitor='val_loss',
+                                 save_best_only=True, verbose=0),
+                 EarlyStopping(monitor='val_loss', patience=args.patience),
+                 CSVLogger('history.log')]
+    init = initializers.RandomNormal(stddev=args.init_stddev)
 
-        input_point_len = args.input_point_len - 1
-        lstm_input = Input(shape=(input_point_len, 2))
-        dropout1_out = Dropout(args.dropout_input)(lstm_input)
-        lstm_out2 = LSTM(args.lstm_units)(dropout1_out)
-        dropout3_out = Dropout(args.dropout_output)(lstm_out2)
-        main_out = Dense(output_dim,
-                         kernel_initializer=init)(dropout3_out)
-        model = Model(inputs=[lstm_input], outputs=[main_out])
+    input_point_len = args.input_point_len - 1
+    lstm_input = Input(shape=(input_point_len, 2))
+    dropout1_out = Dropout(args.dropout_input)(lstm_input)
+    lstm_out2 = LSTM(args.lstm_units)(dropout1_out)
+    dropout3_out = Dropout(args.dropout_output)(lstm_out2)
+    main_out = Dense(output_dim,
+                     kernel_initializer=init)(dropout3_out)
+    model = Model(inputs=[lstm_input], outputs=[main_out])
 
-        if args.optimizer == 'adam':
-            optimizer = optimizers.Adam(clipvalue=args.gradient_clip)
-        elif args.optimizer == 'rmsprop':
-            optimizer = optimizers.RMSprop(lr=args.learning_rate,
-                                           clipvalue=args.gradient_clip)
-        elif args.optimizer == 'nadam':
-            optimizer = optimizers.Naam(clipvalue=args.gradient_clip)
-        model.compile(optimizer=optimizer, loss=mdn_loss_2d)
+    optimizer = optimizers.RMSprop(lr=args.learning_rate,
+                                   clipvalue=args.gradient_clip)
+    model.compile(optimizer=optimizer, loss=mdn_loss_2d)
 
-        if args.verbose is not 0:
-            print_data_shape(dataset)
-            print_model_params()
-            print(model.summary())
-            print()
+    if args.verbose is not 0:
+        print_data_shape(dataset)
+        print_model_params()
+        print(model.summary())
+        print()
 
-        history = model.fit(dataset.train.x, dataset.train.y,
-                  epochs=args.epochs,
-                  batch_size=args.batch_size,
-                  shuffle=True,
-                  validation_data=(dataset.val.x, dataset.val.y),
-                  callbacks=callbacks,
-                  verbose=args.verbose)
+    history = model.fit(dataset.train.x, dataset.train.y,
+              epochs=args.epochs,
+              batch_size=args.batch_size,
+              shuffle=True,
+              validation_data=(dataset.val.x, dataset.val.y),
+              callbacks=callbacks,
+              verbose=args.verbose)
 
-    #############
-    # Prediction
-    #############
+#############
+# Prediction
+#############
 
-    if args.verbose > 0:
-        print('\nprediction start')
-        print('component choice threshold: ' + str(args.choice_delta))
-    # always load a model
-    # either the best one of this run or a given one
-    custom_objects = {'mdn_loss_2d': mdn_loss_2d}
-    if args.load_model_path:
-        model = load_model(args.load_model_path, custom_objects)
-    else:
-        model = load_model(args.save_model_path, custom_objects)
-
-    # prediction setup
-    test_size = len(dataset.test.x)
-    preds = np.zeros((test_size, args.test_pred_len, 2))
-    component_choice = np.zeros(preds.shape[:2])
-    saved_params = np.zeros(preds.shape[:2] + (output_dim, ))
-    x = np.copy(dataset.test.x)
-    # predict all trajectories at once
-    for i in range(0, args.test_pred_len):
-        params = model.predict_on_batch(x)
-        # save params to be visualized later
-        saved_params[:, i] = params
-        # get actual points from the mdn
-        pred_points, ncs = sample(params)
-        component_choice[:, i] = ncs
-        preds[:, i] = pred_points
-        # appending prediction to next input
-        pred_points = pred_points.reshape((test_size, 1, 2))
-        x[:, :-1] = x[:, 1:]
-        x[:, -1:] = pred_points
-        if args.verbose > 0:
-            print(str(i) + '/' + str(args.test_pred_len))
-
-    if args.verbose > 0:
-        print('prediction finished\n')
-
-    ####################
-    # Prediction error calculation
-    ####################
-
-    # compute elementwise squared error of the relative data
-    squared_error = (preds - data.rel.test.y) ** 2
-    if args.verbose > 0:
-        print('data: ' + args.data.split('/')[-2])
-        print('mse avg: ' + "{0:.4f}".format(np.average(squared_error)))
-
-    #############
-    # Animation
-    #############
-
-    if not args.hyperopti and not args.no_animation:
-        Animation(data.abs.test.x,
-                  data.abs.test.y,
-                  data.rel.test.y,
-                  data.mean_rel,
-                  data.std_rel,
-                  preds,
-                  saved_params,
-                  component_choice)
-
-    else:
-        return history, np.average(squared_error), model
-
-if args.hyperopti:
-    hyperopti()
+if args.verbose > 0:
+    print('\nprediction start')
+    print('component choice threshold: ' + str(args.choice_delta))
+# always load a model
+# either the best one of this run or a given one
+custom_objects = {'mdn_loss_2d': mdn_loss_2d}
+if args.load_model_path:
+    model = load_model(args.load_model_path, custom_objects)
 else:
-    run()
+    model = load_model(args.save_model_path, custom_objects)
+
+# prediction setup
+test_size = len(dataset.test.x)
+preds = np.zeros((test_size, args.test_pred_len, 2))
+component_choice = np.zeros(preds.shape[:2])
+saved_params = np.zeros(preds.shape[:2] + (output_dim, ))
+x = np.copy(dataset.test.x)
+# predict all trajectories at once
+for i in range(0, args.test_pred_len):
+    params = model.predict_on_batch(x)
+    # save params to be visualized later
+    saved_params[:, i] = params
+    # get actual points from the mdn
+    pred_points, ncs = sample(params)
+    component_choice[:, i] = ncs
+    preds[:, i] = pred_points
+    # appending prediction to next input
+    pred_points = pred_points.reshape((test_size, 1, 2))
+    x[:, :-1] = x[:, 1:]
+    x[:, -1:] = pred_points
+    if args.verbose > 0:
+        print(str(i) + '/' + str(args.test_pred_len))
+
+if args.verbose > 0:
+    print('prediction finished\n')
+
+####################
+# Prediction error calculation
+####################
+
+# compute elementwise squared error of the relative data
+squared_error = (preds - data.rel.test.y) ** 2
+if args.verbose > 0:
+    print('data: ' + args.data.split('/')[-2])
+    print('mse avg: ' + "{0:.4f}".format(np.average(squared_error)))
+
+#############
+# Animation
+#############
+
+if not args.no_animation:
+    Animation(data.abs.test.x,
+              data.abs.test.y,
+              data.rel.test.y,
+              data.mean_rel,
+              data.std_rel,
+              preds,
+              saved_params,
+              component_choice)

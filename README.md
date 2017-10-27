@@ -1,2 +1,2 @@
-# master_thesis
-The source code of my master thesis
+# Prediction of touch time series
+Self-supervised prediction of sensory-motor trajectories with deep neural nets
