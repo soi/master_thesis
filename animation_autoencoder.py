@@ -52,7 +52,7 @@ class Animation(tk.Frame):
         self.back_button.bind('<ButtonPress-1>', self.go_back)
         self.back_button.pack(side='left')
 
-        self.pause_button = tk.Button(self.button_frame, text='Pause')
+        self.pause_button = tk.Button(self.button_frame, text='Play')
         self.pause_button.pack(side='left')
         self.pause_button.bind('<ButtonPress-1>', self.pause)
 
@@ -105,7 +105,7 @@ class Animation(tk.Frame):
 
         # start from the train/test boundary
         self.count = self.train_len
-        self.pause = False
+        self.pause = True
         self.update()
         self.master.mainloop()
 
@@ -209,15 +209,16 @@ class Animation(tk.Frame):
         self.canvas.postscript(file="saved_canvas" + str(unix_time) + ".ps",
                                colormode='color')
         print("saved canvas image")
-        # plt.savefig("saved_plots" + str(unix_time) + ".eps", format="eps", dpi=1000)
-        # print("saved plot image")
+        plt.savefig("saved_plots" + str(unix_time) + ".eps", format="eps", dpi=1000)
+        print("saved plot image")
 
     def update_scatter(self):
         test_count = self.count - self.train_len
         lt = self.latent.T
         self.ax.clear()
+        self.ax.set_title('Latent spaces of test dataset', fontsize=12)
         self.ax.scatter(lt[0], lt[1])
-        # self.ax.scatter(lt[0][test_count], lt[1][test_count])
+        self.ax.scatter(lt[0][test_count], lt[1][test_count])
 
     def get_coord(self, data_value):
         max_size = self.WINDOW_SIZE / self.PIXEL_SIZE

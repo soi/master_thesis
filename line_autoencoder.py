@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas
 import argparse
-import sys
 import tensorflow as tf
 try:
     import cPickle as pickle # python2
@@ -13,13 +12,11 @@ except ImportError:
 
 from keras.layers import Input, Dense
 from keras.models import Model, load_model
-from keras.datasets import mnist
-from keras import regularizers
-from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
+from keras.callbacks import EarlyStopping, ModelCheckpoint
 from animation_autoencoder import Animation
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-d', '--data', type=str, default='')
+parser.add_argument('-d', '--data', type=str, default='data/rectangles/coordinates2')
 parser.add_argument('-m', '--model_path', type=str, default='./models/default_model')
 parser.add_argument('-p', '--patience', type=int, default=1)
 parser.add_argument('-lm', '--load_model_path', type=str, default='')
@@ -32,14 +29,9 @@ parser.add_argument('-opt', '--optimizer', type=str, default='adam')
 parser.add_argument('-bs', '--batch_size', type=int, default=4)
 parser.add_argument('-il', '--input_len', type=int, default=40)
 parser.add_argument('-tsp', '--test_split', type=float, default=0.15)
-parser.add_argument('-rel', '--rel_coords', action='store_true')
-parser.add_argument('-in-order', '--in-order', action='store_true')
 parser.add_argument('-na', '--no_animation', action='store_true')
 parser.add_argument('-lsplot', '--latent_spaces_plots', action='store_true')
 args = parser.parse_args()
-
-# quick hack
-args.rel_coords = True
 
 callbacks = [EarlyStopping(monitor='val_loss', patience=args.patience,
                            verbose=0),
@@ -66,8 +58,6 @@ def generate_training_data(dataset, args):
     X = np.zeros((len(steps), args.input_len, 2), dtype=np.float32)
     for i, pos in enumerate(steps):
         X[i] = dataset[pos:pos + args.input_len]
-    if not args.in_order:
-        np.random.shuffle(X)
     return X
 
 def get_data(args):
@@ -119,18 +109,14 @@ def visualize_latent_space(latent_spaces, decoder, args):
             data = np.array([[event.xdata, event.ydata],])
             decoded = decoder.predict(data)
             decoded = reshape_paths(decoded, flat=False)
-            if args.rel_coords:
-                decoded = np.cumsum(decoded, axis=1)
+            decoded = np.cumsum(decoded, axis=1)
 
             onclick_ax.clear()
+            onclick_ax.set_title('Decoded latent space', fontsize=12)
             if event.button == 1:
                 # left click
-                if args.rel_coords:
-                    onclick_ax.set_xlim([-0.5, 0.5])
-                    onclick_ax.set_ylim([-0.5, 0.5])
-                else:
-                    onclick_ax.set_xlim([0.0, 1.0])
-                    onclick_ax.set_ylim([0.0, 1.0])
+                onclick_ax.set_xlim([-0.5, 0.5])
+                onclick_ax.set_ylim([-0.5, 0.5])
             else:
                 onclick_ax.autoscale(True)
             onclick_ax.scatter(decoded.T[0], decoded.T[1])
@@ -151,15 +137,8 @@ def visualize_latent_space(latent_spaces, decoder, args):
 abs_paths, rel_paths = get_data(args)
 train_len = int(len(abs_paths) * (1 - args.test_split))
 
-if args.rel_coords:
-    effective_input_len = (args.input_len - 1) * 2
-    x_train, x_test = rel_paths[:train_len], rel_paths[train_len:]
-else:
-    effective_input_len = args.input_len * 2
-    x_train, x_test = abs_paths[:train_len], abs_paths[train_len:]
-
-print (x_train.shape)
-print (x_test.shape)
+effective_input_len = (args.input_len - 1) * 2
+x_train, x_test = rel_paths[:train_len], rel_paths[train_len:]
 
 input_path = Input(shape=(effective_input_len,))
 encoded = Dense(78, activation='softsign',
@@ -200,12 +179,8 @@ decoded_paths = decoder.predict(latent_spaces)
 visualize_latent_space(latent_spaces, decoder, args)
 
 if not args.no_animation:
-    if args.rel_coords:
-        decoded_paths_coor = rel_to_abs_paths(abs_paths, decoded_paths,
-                                              train_len, args)
-    else:
-        decoded_paths_coor = reshape_paths(decoded_paths, flat=False)
-
+    decoded_paths_coor = rel_to_abs_paths(abs_paths, decoded_paths,
+                                          train_len, args)
     # start the animation
     Animation(reshape_paths(abs_paths, flat=False),
             train_len,
