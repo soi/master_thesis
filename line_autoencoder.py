@@ -30,7 +30,6 @@ parser.add_argument('-bs', '--batch_size', type=int, default=4)
 parser.add_argument('-il', '--input_len', type=int, default=40)
 parser.add_argument('-tsp', '--test_split', type=float, default=0.15)
 parser.add_argument('-na', '--no_animation', action='store_true')
-parser.add_argument('-lsplot', '--latent_spaces_plots', action='store_true')
 args = parser.parse_args()
 
 callbacks = [EarlyStopping(monitor='val_loss', patience=args.patience,

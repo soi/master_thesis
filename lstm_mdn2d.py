@@ -69,7 +69,6 @@ parser.add_argument('-v', '--verbose', type=int, default=1)
 parser.add_argument('-no-center', '--no-center', action='store_true')
 parser.add_argument('-ms', '--max-sampling', action='store_true')
 parser.add_argument('-na', '--no-animation', action='store_true')
-parser.add_argument('-scatter', '--scatter', action='store_true')
 args = parser.parse_args()
 
 assert args.data != '', 'need data'
