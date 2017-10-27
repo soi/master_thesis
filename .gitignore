@@ -1,0 +1,4 @@
+*.pyc
+latest_model.hdf5
+history.log
+best_model.h5
