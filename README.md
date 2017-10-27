@@ -1,5 +1,5 @@
 # Prediction of human touch input
-This is the repository of the final version of my thesis' source code and text, which goes by the title "Self-supervised prediction of sensory-motor trajectories with deep neural nets". It contains the four models mentioned in the thesis.
+This is the repository of the final version of my thesis' source code and text, which goes by the title: **Self-supervised prediction of sensory-motor trajectories with deep neural nets**. It contains the three models mentioned in the thesis.
 
 ## Getting started
 I have tested all scripts with Python 2.7 but they should word with Python 3 as well. To start learning with the default parameters simply run one of the files, e.g.:
