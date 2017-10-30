@@ -8,7 +8,8 @@ import numpy as np
 import random
 
 class Animation(tk.Frame):
-    WINDOW_SIZE = 800
+    WINDOW_SIZE_Y = 750
+    WINDOW_SIZE_X = int(WINDOW_SIZE_Y / 1.777777)
     PIXEL_SIZE = 6
     CONFIG = {
             'bg_color': '#ffffff',
@@ -91,11 +92,11 @@ class Animation(tk.Frame):
         self.latent_text = tk.Label(self.master, text=0)
         self.latent_text.pack(side='left')
 
-        self.orig_text = tk.Label(self.master, text='orig',
+        self.orig_text = tk.Label(self.master, text='Original',
                 fg=self.CONFIG['orig']['color'])
         self.orig_text.pack(side='right')
 
-        self.decoded_text = tk.Label(self.master, text='decoded',
+        self.decoded_text = tk.Label(self.master, text='Reconstructed',
                 fg=self.CONFIG['decoded']['color'])
         self.decoded_text.pack(side='right')
 
@@ -110,10 +111,10 @@ class Animation(tk.Frame):
         self.master.mainloop()
 
     def init_canvas(self, bg_color):
-        canvas = tk.Canvas(self.master, height=self.WINDOW_SIZE,
-                width=self.WINDOW_SIZE)
-        full_rect = canvas.create_rectangle(0, 0, self.WINDOW_SIZE,
-                self.WINDOW_SIZE, outline='', fill=bg_color)
+        canvas = tk.Canvas(self.master, height=self.WINDOW_SIZE_Y,
+                width=self.WINDOW_SIZE_X)
+        full_rect = canvas.create_rectangle(0, 0, self.WINDOW_SIZE_X,
+                self.WINDOW_SIZE_Y, outline='', fill=bg_color)
         canvas.pack()
         return full_rect, canvas
 
@@ -216,13 +217,16 @@ class Animation(tk.Frame):
         test_count = self.count - self.train_len
         lt = self.latent.T
         self.ax.clear()
-        self.ax.set_title('Latent spaces of test dataset', fontsize=12)
+        self.ax.set_title('Latent spaces of test dataset with current decoded trajectory', fontsize=12)
         self.ax.scatter(lt[0], lt[1])
         self.ax.scatter(lt[0][test_count], lt[1][test_count])
 
-    def get_coord(self, data_value):
-        max_size = self.WINDOW_SIZE / self.PIXEL_SIZE
-        return int(data_value * max_size) * self.PIXEL_SIZE
+    def get_coord(self, data_point):
+        max_size_x = self.WINDOW_SIZE_X / self.PIXEL_SIZE
+        max_size_y = self.WINDOW_SIZE_Y / self.PIXEL_SIZE
+        x = int(data_point[0] * max_size_x) * self.PIXEL_SIZE
+        y = int(data_point[1] * max_size_y) * self.PIXEL_SIZE
+        return x, y
 
     def check_data_availability(self):
         if self.count >= self.train_len:
@@ -236,11 +240,10 @@ class Animation(tk.Frame):
 
     def set_rect_coords(self, data, rects):
         for i, data_point in enumerate(data):
-            self.canvas.coords(rects[i],
-                    self.get_coord(data_point[0]),
-                    self.get_coord(data_point[1]),
-                    self.get_coord(data_point[0]) + self.PIXEL_SIZE,
-                    self.get_coord(data_point[1]) + self.PIXEL_SIZE)
+            point = self.get_coord(data_point)
+            self.canvas.coords(rects[i], point[0], point[1],
+                               point[0] + self.PIXEL_SIZE,
+                               point[1] + self.PIXEL_SIZE)
 
     def update(self):
         self.check_data_availability()

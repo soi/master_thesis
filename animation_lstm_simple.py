@@ -112,15 +112,15 @@ class Animation(tk.Frame):
         self.text = tk.Label(self.master, text=0)
         self.text.pack(side='bottom')
 
-        self.input_text = tk.Label(self.master, text='input',
+        self.input_text = tk.Label(self.master, text='Input',
                 fg=self.CONFIG['input']['color'])
         self.input_text.pack(side='right')
 
-        self.label_text = tk.Label(self.master, text='label',
+        self.label_text = tk.Label(self.master, text='Label',
                 fg=self.CONFIG['label']['color'])
         self.label_text.pack(side='right')
 
-        self.pred_text = tk.Label(self.master, text='simple',
+        self.pred_text = tk.Label(self.master, text='Prediction',
                 fg=self.CONFIG['pred']['color'])
         self.pred_text.pack(side='right')
 
